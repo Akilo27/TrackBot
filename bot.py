@@ -41,8 +41,8 @@ def _get_env_value(name: str, default: str = "") -> str:
     return value or default
 
 
-BOT_TOKEN = _get_env_value("BOT_TOKEN", "PASTE_BOT_TOKEN_HERE")
-PROVIDER_TOKEN = _get_env_value("PROVIDER_TOKEN", "")
+BOT_TOKEN = "6396361025:AAFUBxVyMDOIK5IxfVdBUp8PbpTRLmObWE8"
+PROVIDER_TOKEN = ""
 PAYMENTS_AVAILABLE = bool(PROVIDER_TOKEN)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
