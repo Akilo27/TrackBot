@@ -15,6 +15,7 @@ Karma Tracker Bot — v3.2 "max pack ++"
 
 import os
 import re
+import sys
 import json
 import random
 import sqlite3
@@ -28,8 +29,21 @@ from telebot import types
 # Рекомендуется хранить в ENV:
 # export BOT_TOKEN="XXX:YYYY"
 # export PROVIDER_TOKEN="123456:LIVE:..."
-BOT_TOKEN = "6396361025:AAFUBxVyMDOIK5IxfVdBUp8PbpTRLmObWE8"
-PROVIDER_TOKEN = "123456:LIVE:"
+
+
+def _get_env_value(name: str, default: str = "") -> str:
+    """Возвращает значение переменной окружения без лишних пробелов."""
+
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value or default
+
+
+BOT_TOKEN = _get_env_value("BOT_TOKEN", "PASTE_BOT_TOKEN_HERE")
+PROVIDER_TOKEN = _get_env_value("PROVIDER_TOKEN", "")
+PAYMENTS_AVAILABLE = bool(PROVIDER_TOKEN)
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -191,6 +205,19 @@ def compute_is_premium(user_id) -> bool:
         execute("UPDATE users SET is_premium=? WHERE user_id=?", (1 if active else 0, user_id))
         return active
     return bool(flag)
+
+
+def ensure_payments_enabled(chat_id) -> bool:
+    """Проверяет наличие провайдера платежей и сообщает пользователю, если он не настроен."""
+
+    if PAYMENTS_AVAILABLE:
+        return True
+    bot.send_message(
+        chat_id,
+        "🚫 Платёжный провайдер не настроен. Оплата временно недоступна."
+    )
+    return False
+
 
 def add_karma(user_id: int, amount: int, reason: str = ""):
     mult = 2 if compute_is_premium(user_id) else 1
@@ -747,6 +774,8 @@ def invite_friend(message):
 @bot.message_handler(func=lambda m: m.text == '🛒 Магазин')
 @bot.message_handler(commands=['shop'])
 def open_shop(message):
+    if not ensure_payments_enabled(message.chat.id):
+        return
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("🌟 Премиум 30 дней — 199 ₽", callback_data='shop:buy_premium'))
     kb.add(types.InlineKeyboardButton("💰 +100 кармы — 99 ₽", callback_data='shop:buy_karma'))
@@ -756,6 +785,8 @@ def open_shop(message):
 def shop_buy_premium(call):
     prices = [types.LabeledPrice(label='🌟 Премиум-доступ на 30 дней', amount=19900)]
     bot.answer_callback_query(call.id)
+    if not ensure_payments_enabled(call.message.chat.id):
+        return
     bot.send_invoice(
         chat_id=call.message.chat.id,
         title="Премиум-доступ",
@@ -771,6 +802,8 @@ def shop_buy_premium(call):
 def shop_buy_karma(call):
     prices = [types.LabeledPrice(label='💰 +100 кармы', amount=9900)]
     bot.answer_callback_query(call.id)
+    if not ensure_payments_enabled(call.message.chat.id):
+        return
     bot.send_invoice(
         chat_id=call.message.chat.id,
         title="+100 кармы",
@@ -784,6 +817,8 @@ def shop_buy_karma(call):
 
 @bot.message_handler(commands=['premium'])
 def premium_cmd(message):
+    if not ensure_payments_enabled(message.chat.id):
+        return
     prices = [types.LabeledPrice(label='🌟 Премиум-доступ на 30 дней', amount=19900)]
     bot.send_invoice(
         chat_id=message.chat.id,
@@ -867,10 +902,12 @@ def fallback_callback(call):
 
 
 if __name__ == '__main__':
-    if BOT_TOKEN.startswith("PASTE_"):
-        print("⚠️ Установи BOT_TOKEN (ENV) перед запуском.")
-    if PROVIDER_TOKEN.startswith("PASTE_"):
-        print("⚠️ Установи PROVIDER_TOKEN (ENV) для платежей.")
+    if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE_"):
+        print("❌ Установи переменную окружения BOT_TOKEN перед запуском.")
+        sys.exit(1)
+
+    if not PAYMENTS_AVAILABLE:
+        print("⚠️ PROVIDER_TOKEN не задан — платёжные функции будут отключены.")
 
     print("Бот запущен...")
     try:
