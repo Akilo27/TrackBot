@@ -146,6 +146,38 @@ def safe_add_column(cursor, table, column, ddl_type):
     if column not in cols:
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
+
+def fix_missing_columns():
+    """Явно добавляет отсутствующие столбцы"""
+    conn = db()
+    c = conn.cursor()
+
+    # Добавляем все возможные отсутствующие столбцы
+    columns_to_add = [
+        ("users", "is_premium", "INTEGER DEFAULT 0"),
+        ("users", "premium_until", "TEXT"),
+        ("users", "last_daily_claim", "TEXT"),
+        ("users", "referrer_id", "INTEGER"),
+        ("challenges", "status", "TEXT"),
+        ("challenges", "target_count", "INTEGER"),
+        ("challenges", "deadline", "TEXT"),
+        ("challenges", "winners", "TEXT"),
+        ("challenges", "is_public", "INTEGER DEFAULT 1"),
+        ("challenges", "created_at", "TEXT")
+    ]
+
+    for table, column, ddl_type in columns_to_add:
+        safe_add_column(c, table, column, ddl_type)
+
+    conn.commit()
+    conn.close()
+    print("✅ Проверка и добавление отсутствующих столбцов завершено")
+
+
+# Вызовите после init_db()
+init_db()
+fix_missing_columns()
+
 init_db()
 
 # ===================== ХЕЛПЕРЫ =====================
@@ -194,17 +226,30 @@ def ensure_user(message):
     )
     return user_id, username
 
+
 def compute_is_premium(user_id) -> bool:
-    row = fetch_one("SELECT is_premium, premium_until FROM users WHERE user_id=?", (user_id,))
-    if not row:
-        return False
-    flag, until = row
-    if until:
-        active = datetime.now() < dt_from_iso(until)
-        # синхронизируем флаг
-        execute("UPDATE users SET is_premium=? WHERE user_id=?", (1 if active else 0, user_id))
-        return active
-    return bool(flag)
+    try:
+        row = fetch_one("SELECT is_premium, premium_until FROM users WHERE user_id=?", (user_id,))
+        if not row:
+            return False
+
+        # Если база старая и столбцов нет
+        if len(row) < 2:
+            return False
+
+        flag, until = row[0], row[1] if len(row) > 1 else None
+
+        if until:
+            active = datetime.now() < dt_from_iso(until)
+            # синхронизируем флаг
+            execute("UPDATE users SET is_premium=? WHERE user_id=?", (1 if active else 0, user_id))
+            return active
+        return bool(flag)
+    except sqlite3.OperationalError as e:
+        if "no such column" in str(e):
+            # Если столбца нет, считаем что премиума нет
+            return False
+        raise
 
 
 def ensure_payments_enabled(chat_id) -> bool:
